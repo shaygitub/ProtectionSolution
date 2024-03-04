@@ -1,0 +1,19 @@
+﻿  ProtectionService.cpp
+  utils.cpp
+H:\current\ProtectionService\utils.cpp(142,27): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
+H:\current\ProtectionService\utils.cpp(171,58): warning C4267: 'argument': conversion from 'size_t' to '_Ty', possible loss of data
+H:\current\ProtectionService\utils.cpp(171,58): warning C4267:         with
+H:\current\ProtectionService\utils.cpp(171,58): warning C4267:         [
+H:\current\ProtectionService\utils.cpp(171,58): warning C4267:             _Ty=int
+H:\current\ProtectionService\utils.cpp(171,58): warning C4267:         ]
+H:\current\ProtectionService\utils.cpp(194,23): warning C4018: '<': signed/unsigned mismatch
+H:\current\ProtectionService\utils.cpp(230,29): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
+H:\current\ProtectionService\utils.cpp(234,37): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
+  Generating Code...
+utils.obj : error LNK2019: unresolved external symbol __imp_inet_ntoa referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+utils.obj : error LNK2019: unresolved external symbol __imp_gethostbyname referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+utils.obj : error LNK2019: unresolved external symbol __imp_gethostname referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+utils.obj : error LNK2019: unresolved external symbol __imp_WSAStartup referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+utils.obj : error LNK2019: unresolved external symbol __imp_WSACleanup referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+utils.obj : error LNK2019: unresolved external symbol __imp_WSAGetLastError referenced in function "int __cdecl MatchIpAddresses(char * const,char * const,char const *)" (?MatchIpAddresses@@YAHQEAD0PEBD@Z)
+H:\current\ProtectionService\x64\Debug\ProtectionService.exe : fatal error LNK1120: 6 unresolved externals

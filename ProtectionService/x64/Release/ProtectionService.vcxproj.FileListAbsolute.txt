@@ -1,0 +1,2 @@
+H:\current\ProtectionService\x64\Release\ProtectionService.exe
+F:\current\ProtectionService\x64\Release\ProtectionService.exe

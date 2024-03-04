@@ -1,0 +1,3 @@
+H:\current\ProtectionProgram\x64\Release\ProtectionProgram.exe
+D:\current\ProtectionProgram\x64\Release\ProtectionProgram.exe
+F:\current\ProtectionProgram\x64\Release\ProtectionProgram.exe

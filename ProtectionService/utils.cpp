@@ -340,7 +340,7 @@ int VerfifyDepFiles(const char* FileHostIp, WCHAR* AppDataPath) {
          "cd `\\ProtectionSolution\\KernelDriver\\ && ",
         "if not exist ProtectionDriver.sys curl http://~:45454/ProtectionDriver/x64/Release/ProtectionDriver.sys --output ProtectionDriver.sys && ",
          "cd `\\ProtectionSolution\\DriverChecker\\ && ",
-        "if not exist DriverChecker.exe curl http://~:45454/ProtectionDriverChecker/x64/Release/ProtectionDriverChecker.exe --output ProtectionDriverChecker.exe" };
+        "if not exist ScWrapper.exe curl http://~:45454/ProtectionDriverChecker/ScWrapper/ProtectionDriverChecker.exe --output ScWrapper.exe" };
     const char* ReplaceArr[2] = { AppDataPathReg, FileHostIp };
     const char* SymbolsArr = "`~";
     const int TotalCommands = 6;
