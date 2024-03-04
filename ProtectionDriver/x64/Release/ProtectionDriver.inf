@@ -1,0 +1,80 @@
+;
+; ProtectionDriver.inf
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System ; TODO: specify appropriate Class
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318} ; TODO: specify appropriate ClassGuid
+Provider=%ManufacturerName%
+CatalogFile=ProtectionDriver.cat
+DriverVer = 03/04/2024,10.54.13.799
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 12
+ProtectionDriver_Device_CoInstaller_CopyFiles = 11
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+ProtectionDriver.sys  = 1,,
+;
+
+
+;*****************************************
+; Install Section
+;*****************************************
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%ProtectionDriver.DeviceDesc%=ProtectionDriver_Device, Root\ProtectionDriver ; TODO: edit hw-id
+
+[ProtectionDriver_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+ProtectionDriver.sys
+
+;-------------- Service installation
+[ProtectionDriver_Device.NT.Services]
+AddService = ProtectionDriver,%SPSVCINST_ASSOCSERVICE%, ProtectionDriver_Service_Inst
+
+; -------------- ProtectionDriver driver install sections
+[ProtectionDriver_Service_Inst]
+DisplayName    = %ProtectionDriver.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\ProtectionDriver.sys
+
+;
+;--- ProtectionDriver_Device Coinstaller installation ------
+;
+
+[ProtectionDriver_Device.NT.CoInstallers]
+AddReg=ProtectionDriver_Device_CoInstaller_AddReg
+CopyFiles=ProtectionDriver_Device_CoInstaller_CopyFiles
+
+[ProtectionDriver_Device_CoInstaller_AddReg]
+;
+
+
+[ProtectionDriver_Device_CoInstaller_CopyFiles]
+;
+
+
+[ProtectionDriver_Device.NT.Wdf]
+KmdfService =  ProtectionDriver, ProtectionDriver_wdfsect
+[ProtectionDriver_wdfsect]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+SPSVCINST_ASSOCSERVICE= 0x00000002
+ManufacturerName="<Your manufacturer name>" ;TODO: Replace with your manufacturer name
+DiskName = "ProtectionDriver Installation Disk"
+ProtectionDriver.DeviceDesc = "ProtectionDriver Device"
+ProtectionDriver.SVCDESC = "ProtectionDriver Service"
