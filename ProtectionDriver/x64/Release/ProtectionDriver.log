@@ -1,10 +1,12 @@
 ﻿  Building 'ProtectionDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
   Stamping x64\Release\ProtectionDriver.inf
-  Stamping [Version] section with DriverVer=03/04/2024,10.54.13.799
+  Stamping [Version] section with DriverVer=03/14/2024,17.22.15.13
+  DkomProtect.cpp
   Driver.cpp
-  DriverVerification.cpp
-F:\current\ProtectionDriver\DriverVerification.cpp(236,24): error C2065: 'VulnurableByteList': undeclared identifier
   helpers.cpp
+  IrpProtect.cpp
   SSDT.cpp
   syscalls.cpp
   Generating Code...
+  ProtectionDriver.vcxproj -> H:\current\ProtectionDriver\x64\Release\ProtectionDriver.sys
+  Driver is 'Universal'.

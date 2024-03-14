@@ -1,7 +1,6 @@
 #pragma once
 #define SHA256_HASHSIZE 33
 #define VULNLIST_SIZE 407
-typedef unsigned char       BYTE;
 
 
 // List of SHA256 hashes of vulnurable drivers from loldrivers.io:

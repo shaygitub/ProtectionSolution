@@ -1,0 +1,1 @@
+H:\current\ProtectionDriver\x64\Release\ProtectionDriver.sys

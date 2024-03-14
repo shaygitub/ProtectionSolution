@@ -59,17 +59,32 @@ NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullIn
 
 
 BOOL FreeProtectedFunctions() {
-	RtlFreeUnicodeString(&NtQueryDirFileProt.FunctionName);
-	RtlFreeUnicodeString(&NtQueryDirFileExProt.FunctionName);
-	RtlFreeUnicodeString(&NtQuerySysInfoProt.FunctionName);
-	RtlFreeUnicodeString(&NtCreateFileProt.FunctionName);
+	if (NtQueryDirFileProt.SyscallNumber != 0) {
+		RtlFreeUnicodeString(&NtQueryDirFileProt.FunctionName);
+	}
+	if (NtQueryDirFileExProt.SyscallNumber != 0) {
+		RtlFreeUnicodeString(&NtQueryDirFileExProt.FunctionName);
+	}
+	if (NtQuerySysInfoProt.SyscallNumber != 0) {
+		RtlFreeUnicodeString(&NtQuerySysInfoProt.FunctionName);
+	}
+	if (NtCreateFileProt.SyscallNumber != 0) {
+		RtlFreeUnicodeString(&NtCreateFileProt.FunctionName);
+	}
 	return TRUE;
 }
 
 
 BOOL RtlFindExportedRoutineByNameProtection() {
-	if (RtlCompareMemory((PVOID)RtlFindExportedRoutineByName, RtlExpRtnByNameHard, sizeof(RtlExpRtnByNameHard)) != sizeof(RtlExpRtnByNameHard)) {
-		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)RtlFindExportedRoutineByName, RtlExpRtnByNameHard, sizeof(RtlExpRtnByNameHard), TRUE)) {
+	PSYSTEM_MODULE KernelBaseAddress = memory_helpers::GetModuleBaseAddressADD("\\SystemRoot\\System32\\ntoskrnl.exe");
+	if (KernelBaseAddress == NULL) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Fix RtlFindExportedRoutineByName, kernel base = NULL\n");
+		return FALSE;
+	}
+	if (RtlCompareMemory((PVOID)((ULONG64)KernelBaseAddress->Base + RTLFINDEXP_KERNELOFFSET), RtlExpRtnByNameHard,
+		sizeof(RtlExpRtnByNameHard)) != sizeof(RtlExpRtnByNameHard)) {
+		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)((ULONG64)KernelBaseAddress->Base + RTLFINDEXP_KERNELOFFSET),
+			RtlExpRtnByNameHard, sizeof(RtlExpRtnByNameHard), TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix RtlFindExportedRoutineByName error/patch\n");
 			return FALSE;
 		}
@@ -80,8 +95,14 @@ BOOL RtlFindExportedRoutineByNameProtection() {
 
 
 BOOL MmGetSystemRoutineAddressProtection() {
-	if (RtlCompareMemory((PVOID)MmGetSystemRoutineAddress, MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard)) != sizeof(MmGetSysRoutineHard)) {
-		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)MmGetSystemRoutineAddress, MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard), TRUE)) {
+	PSYSTEM_MODULE KernelBaseAddress = memory_helpers::GetModuleBaseAddressADD("\\SystemRoot\\System32\\ntoskrnl.exe");
+	if (KernelBaseAddress == NULL) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Fix MmGetSystemRoutineAddress, kernel base = NULL\n");
+		return FALSE;
+	}
+	if (RtlCompareMemory((PVOID)((ULONG64)KernelBaseAddress->Base + MMGETSYSRTN_KERNELOFFSET), MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard)) != sizeof(MmGetSysRoutineHard)) {
+		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)((ULONG64)KernelBaseAddress->Base + MMGETSYSRTN_KERNELOFFSET),
+			MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard), TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix MmGetSystemRoutineAddress error/patch\n");
 			return FALSE;
 		}
@@ -91,35 +112,15 @@ BOOL MmGetSystemRoutineAddressProtection() {
 }
 
 
-void TriggerBlueScreenOfDeath() {
-	IoRaiseHardError(NULL, NULL, NULL);
-	RtlCopyMemory((PVOID)0x1234567890123456, (PVOID)0x1234567890123456, 999999);  // Trigger mostly possible BSoD if last one did not trigger
-}
-
-
 ULONG PatternMatchingDetection(PSYSCALL_PROTECT ProtectedFunction) {
-	if (memory_helpers::MatchPatternADD(MovRaxJmpRax, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovRaxJmpRaxMask, strlen(MovRaxJmpRaxMask)) == strlen(MovRaxJmpRaxMask) ||
-		memory_helpers::MatchPatternADD(MovRbxJmpRbx, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovRbxJmpRbxMask, strlen(MovRbxJmpRbxMask)) == strlen(MovRbxJmpRbxMask) ||
-		memory_helpers::MatchPatternADD(MovRdiJmpRdi, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovRdiJmpRdiMask, strlen(MovRdiJmpRdiMask)) == strlen(MovRdiJmpRdiMask) ||
-		memory_helpers::MatchPatternADD(MovRsiJmpRsi, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovRsiJmpRsiMask, strlen(MovRsiJmpRsiMask)) == strlen(MovRsiJmpRsiMask) ||
-		memory_helpers::MatchPatternADD(MovR12JmpR12, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovR12JmpR12Mask, strlen(MovR12JmpR12Mask)) == strlen(MovR12JmpR12Mask) ||
-		memory_helpers::MatchPatternADD(MovR13JmpR13, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovR13JmpR13Mask, strlen(MovR13JmpR13Mask)) == strlen(MovR13JmpR13Mask) ||
-		memory_helpers::MatchPatternADD(MovR14JmpR14, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovR14JmpR14Mask, strlen(MovR14JmpR14Mask)) == strlen(MovR14JmpR14Mask) ||
-		memory_helpers::MatchPatternADD(MovR15JmpR15, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovR15JmpR15Mask, strlen(MovR15JmpR15Mask)) == strlen(MovR15JmpR15Mask)) {
+	if (memory_helpers::MatchPatternADD(MovJmpPattern, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovJmpMask, strlen(MovJmpMask)) == strlen(MovJmpMask) ||
+		memory_helpers::MatchPatternADD(MovJmpRnPattern, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, MovJmpRnMask, strlen(MovJmpRnMask)) == strlen(MovJmpRnMask)) {
 		return MOVJMPREG_ADDROFFS;  // Regular offset is address = r8-13 offset
 	}
-
-	if (memory_helpers::MatchPatternADD(PushMovXchgRetRax, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetRaxMask, strlen(PushMovXchgRetRaxMask)) == strlen(PushMovXchgRetRaxMask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetRbx, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetRbxMask, strlen(PushMovXchgRetRbxMask)) == strlen(PushMovXchgRetRbxMask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetRdi, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetRdiMask, strlen(PushMovXchgRetRdiMask)) == strlen(PushMovXchgRetRdiMask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetRsi, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetRsiMask, strlen(PushMovXchgRetRsiMask)) == strlen(PushMovXchgRetRsiMask)) {
+	if (memory_helpers::MatchPatternADD(PushMovXchgRetPattern, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetMask, strlen(PushMovXchgRetMask)) == strlen(PushMovXchgRetMask)) {
 		return PUSHMOVXCHGRETREG_ADDROFFS;
 	}
-
-	if (memory_helpers::MatchPatternADD(PushMovXchgRetR12, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetR12Mask, strlen(PushMovXchgRetR12Mask)) == strlen(PushMovXchgRetR12Mask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetR13, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetR13Mask, strlen(PushMovXchgRetR13Mask)) == strlen(PushMovXchgRetR13Mask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetR14, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetR14Mask, strlen(PushMovXchgRetR14Mask)) == strlen(PushMovXchgRetR14Mask) ||
-		memory_helpers::MatchPatternADD(PushMovXchgRetR15, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetR15Mask, strlen(PushMovXchgRetR15Mask)) == strlen(PushMovXchgRetR15Mask)) {
+	if (memory_helpers::MatchPatternADD(PushMovXchgRetRnPattern, (BYTE*)ProtectedFunction->FunctionDataSSDTEntry, PushMovXchgRetRnMask, strlen(PushMovXchgRetRnMask)) == strlen(PushMovXchgRetRnMask)) {
 		return PUSHMOVXCHGRET_ADDROFFS;
 	}
 	return 0;  // No match found
@@ -143,12 +144,10 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 
 
 	// Use the UNICODE_STRING FunctionName to get the function exported address (kernel base + function RVA):
-	/*
 	if (!RtlFindExportedRoutineByNameProtection() || !MmGetSystemRoutineAddressProtection()) {
-		TriggerBlueScreenOfDeath();
+		general_helpers::TriggerBlueScreenOfDeath();
 		return STATUS_UNSUCCESSFUL;
 	}
-	*/
 	FunctionAddressKernelExport = MmGetSystemRoutineAddress(&ProtectedFunction->FunctionName);
 	if (ProtectedFunction->FunctionAddressKernelExport != FunctionAddressKernelExport &&
 		FunctionAddressKernelExport != NULL) {
@@ -167,7 +166,7 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		if (FunctionAddressSSDTEntry != ProtectedFunction->FunctionDataSSDTEntry) {
 			if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->SyscallNumber))) {
 				DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix SSDT hook detected in syscall %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-				TriggerBlueScreenOfDeath();
+				general_helpers::TriggerBlueScreenOfDeath();
 				return STATUS_UNSUCCESSFUL;
 			}
 		}
@@ -179,7 +178,7 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current SSDT entry address (%p) != Initial system service export address (%p), detected SSDT hook\n", FunctionAddressSSDTEntry, ProtectedFunction->FunctionAddressKernelExport);
 		if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->FunctionAddressKernelExport, ProtectedFunction->SyscallNumber))) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix SSDT hook detected in syscall %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			TriggerBlueScreenOfDeath();
+			general_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 		ProtectedFunction->FunctionDataSSDTEntry = ProtectedFunction->FunctionAddressKernelExport;
@@ -212,7 +211,7 @@ NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current system service data != initial system service data (difference = byte number %zu, range = %llu), detected system service inline hook\n", LastMatchingByte, ProtectedFunction->ActualOriginalChecked);
 		if (!memory_transfer::WriteToReadOnlyMemoryADD(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->OriginalData, ProtectedFunction->ActualOriginalChecked, TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix system service inline hook detected in system service %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			TriggerBlueScreenOfDeath();
+			general_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 	}
@@ -224,7 +223,7 @@ NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current system service data != hardcoded system service data (difference = byte number %zu, range = %llu), detected system service inline hook\n", LastMatchingByte, ProtectedFunction->HardcodedOriginalMemory.MemorySize);
 		if (!memory_transfer::WriteToReadOnlyMemoryADD(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->HardcodedOriginalMemory.MemoryBuffer, ProtectedFunction->HardcodedOriginalMemory.MemorySize, TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix system service inline hook detected in system service %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			TriggerBlueScreenOfDeath();
+			general_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 		RtlCopyMemory(ProtectedFunction->OriginalData, ProtectedFunction->HardcodedOriginalMemory.MemoryBuffer, ProtectedFunction->HardcodedOriginalMemory.MemorySize);

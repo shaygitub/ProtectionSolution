@@ -20,8 +20,10 @@
 #define NTLOADDRIVER_SYSCALL22H2 0x0106
 #define NTLOADDRIVER_SYSCALL1809 0x00ff 
 #define MAX_PROTECTED_DATA 100
-
-
+#define SWAPCTX_HALOFFSET 0x400
+#define ETHRD_TO_EPRCS_OFFSET 0x220  // Points to KTHREAD.Process (type KPROCESS*)
+#define LISTENTRY_ETHREAD_OFFSET 0x2f8  // Points to KTHREAD.ThreadListHead (type LIST_ENTRY)
+#define IRPMAJOR_CHECKEDOFFSET 0x20
 typedef NTSTATUS(*LoadDriver)(IN PUNICODE_STRING DriverServiceName);
 
 
@@ -42,6 +44,19 @@ typedef struct _SYSCALL_PROTECT {
 	BOOL InlineAlreadyDetected = FALSE;
 } SYSCALL_PROTECT, * PSYSCALL_PROTECT;
 
+
+typedef struct _IRP_MEMORYDATA {
+	BYTE MajorFunctionData[IRPMAJOR_CHECKEDOFFSET] = { 0 };
+	PVOID IrpDispatcher = NULL;
+} IRP_MEMORYDATA, * PIRP_MEMORYDATA;
+
+typedef struct _IRP_PROTECT {
+	UNICODE_STRING DriverName = { 0 };
+	PDRIVER_OBJECT DriverObject = NULL;
+	PVOID DriverImageBase = NULL;  // Used to verify if current address is in range
+	ULONG64 DriverImageSize = NULL;  // Used to verify if current address is in range
+	IRP_MEMORYDATA IrpDispatchers[28] = { 0 };
+} IRP_PROTECT, * PIRP_PROTECT;
 
 typedef struct _KAFFINITY_EX {
 	char Affinity[0xA8];

@@ -18,3 +18,4 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction);
 NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction);
 PVOID SystemCallsProtection();
 NTSTATUS NtLoadDriverProtection(IN PUNICODE_STRING DriverRegistryPath);
+NTSTATUS UnhookNtLoadDriver();

@@ -1,11 +1,15 @@
-
 #include "syscalls.h"
+#include "DkomProtect.h"
+#include "IrpProtect.h"
 
 
 VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject) {
     UNREFERENCED_PARAMETER(DriverObject);
     DbgPrintEx(0, 0, "ProtectionDriver - Unload called\n");
     FreeProtectedFunctions();
+    FreeProtectedDrivers();
+    UnhookNtLoadDriver();
+    ContextSwitchProtection::UninstallSwapContextHook();
 }
 
 
@@ -29,18 +33,28 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE
         "--------------------\n");
 
 
-    // SSDT safe-hook NtLoadDriver to monitor loading drivers:
+    // SSDT safe-hook NtLoadDriver() to monitor loading drivers:
     Status = SSDT::SystemServiceDTHook(&NtLoadDriverProtection, NTLOADDRIVER_TAG);
     if (!NT_SUCCESS(Status)) {
         DbgPrintEx(0, 0, "ProtectionDriver - Failed to safe-hook NtLoadDriver() for monitoring vulnurable drivers, status code: 0x%x\n", Status);
+        DriverUnload(DriverObject);  // Clean all existing hooks
+        return STATUS_UNSUCCESSFUL;
+    }
+    
+
+    // Install HalClearLastBranchRecordStack() hook to monitor running threads:
+    Status = ContextSwitchProtection::InstallSwapContextHook();
+    if (!NT_SUCCESS(Status)) {
+        DbgPrintEx(0, 0, "ProtectionDriver - Failed to install HalClearLastBranchRecordStack() hook to monitor running threads, status code: 0x%x\n", Status);
+        DriverUnload(DriverObject);  // Clean all existing hooks
         return STATUS_UNSUCCESSFUL;
     }
 
 
     // Execute system calls protection thread:
-    HANDLE PipeThread = NULL;
+    HANDLE SyscallProtThread = NULL;
     Status = PsCreateSystemThread(
-        &PipeThread,
+        &SyscallProtThread,
         GENERIC_ALL,
         NULL,
         NULL,
@@ -50,11 +64,28 @@ extern "C" NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE
     
     if (!NT_SUCCESS(Status)) {
         DbgPrintEx(0, 0, "ProtectionDriver - Failed to create system calls protection thread, status code: 0x%x\n", Status);
-        if (PipeThread != NULL) {
-            ZwClose(PipeThread);
-        }
+        DriverUnload(DriverObject);  // Clean all existing hooks
         return STATUS_UNSUCCESSFUL;
     }
-    ZwClose(PipeThread);
+    ZwClose(SyscallProtThread);
+
+
+    // Execute IRP protection thread:
+    HANDLE IrpProtThread = NULL;
+    Status = PsCreateSystemThread(
+        &IrpProtThread,
+        GENERIC_ALL,
+        NULL,
+        NULL,
+        NULL,
+        (PKSTART_ROUTINE)IrpPatchProtection,
+        NULL);
+
+    if (!NT_SUCCESS(Status)) {
+        DbgPrintEx(0, 0, "ProtectionDriver - Failed to create IRP protection thread, status code: 0x%x\n", Status);
+        DriverUnload(DriverObject);  // Clean all existing hooks
+        return STATUS_UNSUCCESSFUL;
+    }
+    ZwClose(IrpProtThread);
     return Status;
 }

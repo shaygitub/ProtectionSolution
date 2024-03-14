@@ -13,6 +13,7 @@ namespace general_helpers {
 	void ExecuteInstructionsADD(BYTE Instructions[], SIZE_T InstructionsSize);  // Execute the instructions given
 	NTSTATUS CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataToHash, LPCWSTR HashName, 
 		PVOID* HashedDataOutput, ULONG* HashedDataLength);  // Create hash digestion of the provided data
+	void TriggerBlueScreenOfDeath();  // Trigger BSoD
 }
 
 namespace memory_helpers {
@@ -20,7 +21,7 @@ namespace memory_helpers {
 	PVOID AllocateMemoryADD(PVOID InitialAddress, SIZE_T AllocSize, KAPC_STATE* CurrState, ULONG_PTR ZeroBits);  // allocate memory by parameters (assumes: already attached)
 	ULONG64 GetHighestUserModeAddrADD();  // retrieves the maximum usermode address for the local machine
 	PVOID FindUnusedMemoryADD(BYTE* SearchSection, ULONG SectionSize, SIZE_T NeededLength);  // Find a section of code with enough empty instuctions to fit a NeededLength sized data in it
-	PVOID GetModuleBaseAddressADD(const char* ModuleName);  // Get the base address of a system module/ntoskrnl.exe
+	PSYSTEM_MODULE GetModuleBaseAddressADD(const char* ModuleName);  // Get the base address of a system module/ntoskrnl.exe
 	PVOID GetTextSectionOfSystemModuleADD(PVOID ModuleBaseAddress, ULONG* TextSectionSize);  // Get the address of the code (.text) section of a system module
 	PIMAGE_SECTION_HEADER GetSectionHeaderFromNameADD(PVOID ModuleBaseAddress, const char* SectionName);  // Get the section by the name from a system module
 	BOOL ChangeProtectionSettingsADD(HANDLE ProcessHandle, PVOID Address, ULONG Size, ULONG ProtSettings, ULONG OldProtect);

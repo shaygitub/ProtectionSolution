@@ -4,6 +4,8 @@
 #define MOVJMP_ADDROFFS 2
 #define PUSHMOVXCHGRETREG_ADDROFFS 3
 #define PUSHMOVXCHGRET_ADDROFFS 4
+#define RTLFINDEXP_KERNELOFFSET 0x50fe50
+#define MMGETSYSRTN_KERNELOFFSET 0x6367f0
 
 BYTE NtQueryFileHard[] = "\x40\x53\x48\x83\xec\x50\xf6\x9c\x24\xa0\x00\x00\x00\x48\x8b\xda\x1a\xc0\x24\x02\x44\x0f\xb6\xd8\x41\x8a\xc3";
 BYTE NtQueryFileExHard[] = "\x8A\x84\x24\x80\x00\x00\x00\x41\xB1\x01\x4C\x8B\x84\x24\x88\x00\x00\x00\x48\x8B\x94\x24\x90\x00\x00\x00\x48\x8B\x8C\x24\x98\x00\x00\x00";
@@ -17,53 +19,11 @@ SYSCALL_PROTECT NtCreateFileProt;
 SYSCALL_PROTECT NtQuerySysInfoProt;
 
 
-// Known mov+jmp hooking patterns:
-const BYTE MovRaxJmpRax[] = "\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xE0";
-const char* MovRaxJmpRaxMask = "xx????????xx";
-
-const BYTE MovRbxJmpRbx[] = "\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xE3";
-const char* MovRbxJmpRbxMask = "xx????????xx";
-
-const BYTE MovRdiJmpRdi[] = "\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xE7";
-const char* MovRdiJmpRdiMask = "xx????????xx";
-
-const BYTE MovRsiJmpRsi[] = "\x48\xBE\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xE6";
-const char* MovRsiJmpRsiMask = "xx????????xx";
-
-const BYTE MovR12JmpR12[] = "\x49\xBC\x00\x00\x00\x00\x00\x00\x00\x00\x41\xFF\xE4";
-const char* MovR12JmpR12Mask = "xx????????xxx";
-
-const BYTE MovR13JmpR13[] = "\x49\xBD\x00\x00\x00\x00\x00\x00\x00\x00\x41\xFF\xE5";
-const char* MovR13JmpR13Mask = "xx????????xxx";
-
-const BYTE MovR14JmpR14[] = "\x49\xBE\x00\x00\x00\x00\x00\x00\x00\x00\x41\xFF\xE6";
-const char* MovR14JmpR14Mask = "xx????????xxx";
-
-const BYTE MovR15JmpR15[] = "\x49\xBF\x00\x00\x00\x00\x00\x00\x00\x00\x41\xFF\xE7";
-const char* MovR15JmpR15Mask = "xx????????xxx";
-
-
-// Known push+mov+xchg+ret hooking patterns:
-const BYTE PushMovXchgRetRax[] = "\x50\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00\x48\x87\x04\x24\xC3";
-const char* PushMovXchgRetRaxMask = "xxx????????xxxxx";
-
-const BYTE PushMovXchgRetRbx[] = "\x53\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00\x48\x87\x1C\x24\xC3";
-const char* PushMovXchgRetRbxMask = "xxx????????xxxxx";
-
-const BYTE PushMovXchgRetRdi[] = "\x57\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00\x48\x87\x3C\x24\xC3";
-const char* PushMovXchgRetRdiMask = "xxx????????xxxxx";
-
-const BYTE PushMovXchgRetRsi[] = "\x56\x48\xBE\x00\x00\x00\x00\x00\x00\x00\x00\x48\x87\x34\x24\xC3";
-const char* PushMovXchgRetRsiMask = "xxx????????xxxxx";
-
-const BYTE PushMovXchgRetR12[] = "\x41\x54\x49\xBC\x00\x00\x00\x00\x00\x00\x00\x00\x4C\x87\x24\x24\xC3";
-const char* PushMovXchgRetR12Mask = "xxxx????????xxxxx";
-
-const BYTE PushMovXchgRetR13[] = "\x41\x55\x49\xBD\x00\x00\x00\x00\x00\x00\x00\x00\x4C\x87\x2C\x24\xC3";
-const char* PushMovXchgRetR13Mask = "xxxx????????xxxxx";
-
-const BYTE PushMovXchgRetR14[] = "\x41\x56\x49\xBE\x00\x00\x00\x00\x00\x00\x00\x00\x4C\x87\x34\x24\xC3";
-const char* PushMovXchgRetR14Mask = "xxxx????????xxxxx";
-
-const BYTE PushMovXchgRetR15[] = "\x41\x57\x49\xBF\x00\x00\x00\x00\x00\x00\x00\x00\x4C\x87\x3C\x24\xC3";
-const char* PushMovXchgRetR15Mask = "xxxx????????xxxxx";
+const BYTE MovJmpPattern[] = "\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\xFF\x00";
+const BYTE MovJmpRnPattern[] = "\x49\x00\x00\x00\x00\x00\x00\x00\x00\x00\x41\xFF\x00";
+const BYTE PushMovXchgRetPattern[] = "\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x48\x87\x00\x24\xC3";
+const BYTE PushMovXchgRetRnPattern[] = "\x41\x00\x49\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4C\x87\x00\x24\xC3";
+const char* MovJmpMask = "x?????????x?";
+const char* MovJmpRnMask = "x?????????xx?";
+const char* PushMovXchgRetMask = "?x?????????xx?xx";
+const char* PushMovXchgRetRnMask = "x?x?????????xx?xx";

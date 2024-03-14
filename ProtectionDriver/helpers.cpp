@@ -296,6 +296,12 @@ NTSTATUS general_helpers::CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataTo
 }
 
 
+void general_helpers::TriggerBlueScreenOfDeath() {
+	IoRaiseHardError(NULL, NULL, NULL);
+	RtlCopyMemory((PVOID)0x1234567890123456, (PVOID)0x1234567890123456, 999999);  // Trigger mostly possible BSoD if last one did not trigger
+}
+
+
 
 
 BOOL memory_helpers::FreeAllocatedMemoryADD(PEPROCESS EpDst, ULONG OldState, PVOID BufferAddress, SIZE_T BufferSize) {
@@ -472,10 +478,12 @@ PVOID memory_helpers::FindUnusedMemoryADD(BYTE* SearchSection, ULONG SectionSize
 }
 
 
-PVOID memory_helpers::GetModuleBaseAddressADD(const char* ModuleName) {
+PSYSTEM_MODULE memory_helpers::GetModuleBaseAddressADD(const char* ModuleName) {
 	PSYSTEM_MODULE_INFORMATION SystemModulesInfo = NULL;
 	PSYSTEM_MODULE CurrentSystemModule = NULL;
 	ULONG InfoSize = 0;
+	// PVOID ModuleBaseAddress = NULL;
+
 	NTSTATUS Status = ZwQuerySystemInformation(SystemModuleInformation, 0, InfoSize, &InfoSize);
 	if (InfoSize == 0) {
 		DbgPrintEx(0, 0, "KMDFdriver GetModuleBaseAddressADD - did not return the needed size\n");
@@ -492,12 +500,15 @@ PVOID memory_helpers::GetModuleBaseAddressADD(const char* ModuleName) {
 		ExFreePool(SystemModulesInfo);
 		return NULL;
 	}
-	for (ULONG modulei = 0; modulei < SystemModulesInfo->ModulesCount; ++modulei)
-	{
+
+
+	// Iterate list:
+	for (ULONG modulei = 0; modulei < SystemModulesInfo->ModulesCount; ++modulei){
 		CurrentSystemModule = &SystemModulesInfo->Modules[modulei];
 		if (_stricmp(CurrentSystemModule->ImageName, ModuleName) == 0) {
+			// ModuleBaseAddress = CurrentSystemModule->Base;
 			ExFreePool(SystemModulesInfo);
-			return CurrentSystemModule->Base;
+			return CurrentSystemModule;
 		}
 	}
 	return NULL;

@@ -77,6 +77,14 @@ int main() {
     printf("[+] Created protection driver service\n");
 
 
+    // Verify if shortcut to wrappers dont point to wrappers, if so - link again:
+    // TODO
+    
+    
+    // Turn on all of the important security features ():
+    // TODO
+    
+
     // Turn off KPP:
     if (system("bcdedit /debug ON") == -1) {
         printf("[-] Failed to turn off KPP: %d\n", GetLastError());
@@ -86,7 +94,7 @@ int main() {
 
 
     // Forcefully restart machine:
-    if (system("shutdown -r -f > nul") == -1) {
+    if (system("shutdown -r -f -t 1 > nul") == -1) {
         printf("[-] Failed to force reset the protected machine: %d\n", GetLastError());
         return FALSE;
     }

@@ -39,7 +39,10 @@
     <ClCompile Include="SSDT.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DriverVerification.cpp">
+    <ClCompile Include="DkomProtect.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="IrpProtect.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -60,6 +63,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="VulnurableList.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DkomProtect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="IrpProtect.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

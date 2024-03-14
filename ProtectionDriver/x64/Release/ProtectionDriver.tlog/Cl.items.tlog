@@ -1,0 +1,6 @@
+H:\current\ProtectionDriver\DkomProtect.cpp;H:\current\ProtectionDriver\x64\Release\DkomProtect.obj
+H:\current\ProtectionDriver\Driver.cpp;H:\current\ProtectionDriver\x64\Release\Driver.obj
+H:\current\ProtectionDriver\helpers.cpp;H:\current\ProtectionDriver\x64\Release\helpers.obj
+H:\current\ProtectionDriver\IrpProtect.cpp;H:\current\ProtectionDriver\x64\Release\IrpProtect.obj
+H:\current\ProtectionDriver\SSDT.cpp;H:\current\ProtectionDriver\x64\Release\SSDT.obj
+H:\current\ProtectionDriver\syscalls.cpp;H:\current\ProtectionDriver\x64\Release\syscalls.obj

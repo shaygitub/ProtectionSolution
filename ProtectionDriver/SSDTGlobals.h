@@ -13,4 +13,4 @@ typedef struct _SYSTEM_SERVICE_TABLE {
 } SYSTEM_SERVICE_TABLE, * PSYSTEM_SERVICE_TABLE;
 
 PSYSTEM_SERVICE_TABLE KiServiceDescriptorTable = NULL;
-PVOID NtLoadDriverActual = NULL;
+PVOID NtLoadDriverActual = NULL;  // Only used in DriverVerification.cpp for SSDT hooking of NtLoadDriver()
