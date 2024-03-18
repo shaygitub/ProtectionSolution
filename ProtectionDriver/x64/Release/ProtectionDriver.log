@@ -1,6 +1,6 @@
 ﻿  Building 'ProtectionDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
   Stamping x64\Release\ProtectionDriver.inf
-  Stamping [Version] section with DriverVer=03/14/2024,17.22.15.13
+  Stamping [Version] section with DriverVer=03/15/2024,10.5.34.321
   DkomProtect.cpp
   Driver.cpp
   helpers.cpp
@@ -8,5 +8,5 @@
   SSDT.cpp
   syscalls.cpp
   Generating Code...
-  ProtectionDriver.vcxproj -> H:\current\ProtectionDriver\x64\Release\ProtectionDriver.sys
+  ProtectionDriver.vcxproj -> D:\current\ProtectionDriver\x64\Release\ProtectionDriver.sys
   Driver is 'Universal'.

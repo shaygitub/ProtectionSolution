@@ -1,0 +1,1 @@
+..\Python\Python3.11\python.exe ..\current\protection_server\main.py

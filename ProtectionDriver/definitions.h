@@ -55,7 +55,7 @@ typedef struct _IRP_PROTECT {
 	PDRIVER_OBJECT DriverObject = NULL;
 	PVOID DriverImageBase = NULL;  // Used to verify if current address is in range
 	ULONG64 DriverImageSize = NULL;  // Used to verify if current address is in range
-	IRP_MEMORYDATA IrpDispatchers[28] = { 0 };
+	IRP_MEMORYDATA IrpDispatchers[IRP_MJ_MAXIMUM_FUNCTION + 1] = { 0 };
 } IRP_PROTECT, * PIRP_PROTECT;
 
 typedef struct _KAFFINITY_EX {
