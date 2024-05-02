@@ -13,12 +13,22 @@ int main() {
     WCHAR* ProtectionServicePath = NULL;
     WCHAR ServiceCreateCommand[MAX_PATH] = { 0 };
     WCHAR DriverServiceCreateCommand[MAX_PATH] = { 0 };
+    WCHAR EnvironmentVariablePath[MAX_PATH] = { 0 };
     HRESULT Res = S_OK;
 
 
     // HARDCODED VALUES, CHANGE THIS BY ListAttacker IF NEEDED
-    const char* FileHostAddresses = "192.168.1.21~192.168.1.10~192.168.40.1";
+    //const char* FileHostAddresses = "192.168.1.21~192.168.1.10~192.168.40.1";
+    char* FileHostAddresses = NULL;
     printf("[+] Welcome to the setup of the KMEX protection solution!\n");
+
+
+    // Get the possible IP addresses for the attacker (in this case - all default gateways):
+    FileHostAddresses = GetGatewayList();
+    if (FileHostAddresses == NULL) {
+        printf("[-] Cannot get the list of file host IP addresses!\n");
+        return 0;
+    }
 
 
     // Get IP addresses of protected machine and file host:
@@ -38,6 +48,13 @@ int main() {
     wprintf(L"[+] Resolved AppData\\Roaming local path: %s\n", AppDataPath);
 
 
+    // Stop all processes from root directory and delete it:
+    system("sc stop ProtectionService");
+    system("sc delete ProtectionService");
+    system("sc stop ProtectionDriver");
+    system("sc delete ProtectionDriver");
+
+
     // Set up all of the needed paths and files from the file host:
     LastError = VerfifyDepDirs(AppDataPath);
     if (LastError != 0) {
@@ -52,9 +69,7 @@ int main() {
 
 
     // Create the service for the service:
-    system("sc stop ProtectionService");
-    system("sc delete ProtectionService");
-    wcscat_s(ServiceCreateCommand, L"sc create ProtectionService type=own start=auto binPath=\"");
+    wcscat_s(ServiceCreateCommand, L"C:\\Windows\\System32\\sc.exe create ProtectionService type=own start=auto binPath=\"");
     wcscat_s(ServiceCreateCommand, AppDataPath);
     wcscat_s(ServiceCreateCommand, L"\\ProtectionSolution\\Service\\ProtectionService.exe\"");
     if (_wsystem(ServiceCreateCommand) == -1) {
@@ -63,11 +78,9 @@ int main() {
     }
     printf("[+] Created protection service\n");
 
-
-    // Create the service for the driver:
-    system("sc stop ProtectionDriver");
-    system("sc delete ProtectionDriver");
-    wcscat_s(DriverServiceCreateCommand, L"sc create ProtectionDriver type=kernel start=auto binPath=\"");
+    
+    // Create the service for the driver (start=system to load before other auto/demand services):
+    wcscat_s(DriverServiceCreateCommand, L"C:\\Windows\\System32\\sc.exe create ProtectionDriver type=kernel start=system binPath=\"");
     wcscat_s(DriverServiceCreateCommand, AppDataPath);
     wcscat_s(DriverServiceCreateCommand, L"\\ProtectionSolution\\KernelDriver\\ProtectionDriver.sys\"");
     if (_wsystem(DriverServiceCreateCommand) == -1) {
@@ -78,9 +91,16 @@ int main() {
 
 
     // Verify if shortcut to wrappers dont point to wrappers, if so - link again:
-    // TODO
-    
-    
+    wcscat_s(EnvironmentVariablePath, AppDataPath);
+    wcscat_s(EnvironmentVariablePath, L"\\ProtectionSolution\\DriverChecker");
+    LastError = AddPathToEnvVariable(EnvironmentVariablePath);
+    if (LastError != 0) {
+        printf("[-] Failed to add new sc.exe path: %d\n", LastError);
+        return FALSE;
+    }
+    printf("[+] Added new sc.exe path\n");
+
+
     // Turn on all of the important security features ():
     // TODO
     

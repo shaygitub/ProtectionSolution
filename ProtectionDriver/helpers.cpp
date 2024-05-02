@@ -2,6 +2,47 @@
 #include <bcrypt.h>
 #pragma warning(disable : 4996)
 #pragma warning(disable : 4244)
+#pragma warning(disable : 6387)
+#pragma warning(disable : 6305)
+#pragma warning(disable : 6001)
+
+
+NTSTATUS unicode_helpers::InitiateUnicode(LPWSTR String, ULONG PoolTag, PUNICODE_STRING UnicodeString) {
+	if (UnicodeString == NULL || String == NULL || PoolTag == 0) {
+		return STATUS_INVALID_PARAMETER;
+	}
+	UnicodeString->Buffer = (LPWSTR)ExAllocatePoolWithTag(PagedPool,
+		(wcslen(String) + 1) * sizeof(WCHAR), PoolTag);
+	if (UnicodeString->Buffer == NULL) {
+		return STATUS_UNSUCCESSFUL;
+	}
+	RtlCopyMemory(UnicodeString->Buffer, String, (wcslen(String) + 1) * sizeof(WCHAR));
+	UnicodeString->Length = (USHORT)(wcslen(String) * sizeof(WCHAR));
+	UnicodeString->MaximumLength = (USHORT)((wcslen(String) + 1) * sizeof(WCHAR));  // Nullterm included
+	return STATUS_SUCCESS;
+}
+
+
+void unicode_helpers::FreeUnicode(PUNICODE_STRING String) {
+	if (String->Buffer != NULL) {
+		ExFreePool(String->Buffer);
+		String->Buffer = NULL;
+		String->Length = 0;
+		String->MaximumLength = 0;
+	}
+}
+
+
+PDRIVER_OBJECT general_helpers::GetDriverObjectADD(PUNICODE_STRING DriverName) {
+	PDRIVER_OBJECT DriverObject = NULL;
+	NTSTATUS Status = ObReferenceObjectByName(DriverName, OBJ_CASE_INSENSITIVE, NULL, 0,
+		*IoDriverObjectType, KernelMode, NULL, (PVOID*)&DriverObject);
+	if (!NT_SUCCESS(Status) || DriverObject == NULL) {
+		DbgPrintEx(0, 0, "ProtectionDriver GetDriverObjectADD() - 0x%x\n", Status);
+		return NULL;
+	}
+	return DriverObject;
+}
 
 
 NTSTATUS general_helpers::OpenProcessHandleADD(HANDLE* Process, ULONG64 PID) {
@@ -86,6 +127,7 @@ BOOL general_helpers::CompareUnicodeStringsADD(PUNICODE_STRING First, PUNICODE_S
 
 
 BOOL general_helpers::IsExistFromIndexADD(PUNICODE_STRING Inner, PUNICODE_STRING Outer, USHORT StartIndex) {
+	
 	// Check for invalid parameters:
 	if (Inner->Length == 0 || Outer->Length == 0 || (StartIndex * sizeof(WCHAR)) + Inner->Length > Outer->Length || Inner->Buffer == NULL || Outer->Buffer == NULL) {
 		return FALSE;
@@ -135,7 +177,7 @@ NTSTATUS general_helpers::GetPidNameFromListADD(ULONG64* ProcessId, char Process
 		if (!NameGiven) {
 			if ((ULONG64)CurrentProcess->UniqueProcessId == *ProcessId) {
 				RtlCopyMemory(ProcessName, &CurrentProcess->ImageFileName, 15);
-				DbgPrintEx(0, 0, "KMDFdriver GetPidNameFromListADD - Found name %s for PID %llu\n", ProcessName, *ProcessId);
+				DbgPrintEx(0, 0, "ProtectionDriver GetPidNameFromListADD - Found name %s for PID %llu\n", ProcessName, *ProcessId);
 				return STATUS_SUCCESS;
 			}
 		}
@@ -143,7 +185,7 @@ NTSTATUS general_helpers::GetPidNameFromListADD(ULONG64* ProcessId, char Process
 			RtlCopyMemory(CurrentProcName, &CurrentProcess->ImageFileName, 15);
 			if (_stricmp(CurrentProcName, ProcessName) == 0) {
 				*ProcessId = (ULONG64)CurrentProcess->UniqueProcessId;
-				DbgPrintEx(0, 0, "KMDFdriver GetPidNameFromListADD - Found PID %llu for name %s\n", *ProcessId, ProcessName);
+				DbgPrintEx(0, 0, "ProtectionDriver GetPidNameFromListADD - Found PID %llu for name %s\n", *ProcessId, ProcessName);
 				return STATUS_SUCCESS;
 			}
 			RtlZeroMemory(CurrentProcName, 15);
@@ -185,7 +227,7 @@ void general_helpers::ExecuteInstructionsADD(BYTE Instructions[], SIZE_T Instruc
 }
 
 
-NTSTATUS general_helpers::CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataToHash, LPCWSTR HashName,
+NTSTATUS protection_helpers::CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataToHash, LPCWSTR HashName,
 	PVOID* HashedDataOutput, ULONG* HashedDataLength) {
 	/*
 	Note: hash name is the documented macro for the type of encryption
@@ -296,12 +338,109 @@ NTSTATUS general_helpers::CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataTo
 }
 
 
-void general_helpers::TriggerBlueScreenOfDeath() {
+void protection_helpers::TriggerBlueScreenOfDeath() {
 	IoRaiseHardError(NULL, NULL, NULL);
 	RtlCopyMemory((PVOID)0x1234567890123456, (PVOID)0x1234567890123456, 999999);  // Trigger mostly possible BSoD if last one did not trigger
 }
 
 
+NTSTATUS protection_helpers::GetFileInformationByHandleADD(HANDLE FileHandle, PULONG FileImageSize,
+	PUNICODE_STRING FilePath, PVOID* FileDataPool, BOOL ShouldClose, BOOL ShouldReturnRaw) {
+	/*
+	Note: one check is not dependent on another check except the first two (driver file size and driver file),
+	for example - failing in querying the driver file name will NOT free the driver file pool
+	*/
+
+	NTSTATUS Status = STATUS_UNSUCCESSFUL;
+	UNICODE_STRING RawFileName = { 0 };
+	IO_STATUS_BLOCK FileStatusBlock = { 0 };
+	OBJECT_ATTRIBUTES DriverObjectAttrs = { 0 };
+	FILE_STANDARD_INFORMATION DriverFileInfo = { 0 };
+	PVOID FileNameInfoBuffer = NULL;
+	WCHAR FullFileName[MAX_PATH] = { 0 };
+	if (FileHandle == NULL) {
+		return STATUS_INVALID_PARAMETER;
+	}
+
+
+	// Get driver image size:
+	if (FileImageSize != NULL) {
+		Status = ZwQueryInformationFile(FileHandle, &FileStatusBlock, &DriverFileInfo,
+			sizeof(DriverFileInfo), FileStandardInformation);
+		if (!NT_SUCCESS(Status)) {
+			if (ShouldClose) {
+				NtClose(FileHandle);
+			}
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to resolve driver image size: 0x%x\n", Status);
+			return Status;
+		}
+		*FileImageSize = DriverFileInfo.EndOfFile.QuadPart;
+	}
+
+
+	// Get driver image data (needs to be paired with the last one / to be provided with a size):
+	if (FileDataPool != NULL){
+		if (FileImageSize == NULL || *FileImageSize == 0) {
+			if (ShouldClose) {
+				NtClose(FileHandle);
+			}
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to resolve image buffer: 0x%x\n", STATUS_INVALID_PARAMETER);
+			return STATUS_INVALID_PARAMETER;
+		}
+		*FileDataPool = ExAllocatePoolWithTag(NonPagedPool, *FileImageSize, 'DdPb');
+		if (*FileDataPool == NULL) {
+			if (ShouldClose) {
+				NtClose(FileHandle);
+			}
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to resolve image buffer: 0x%x\n", STATUS_MEMORY_NOT_ALLOCATED);
+			return STATUS_MEMORY_NOT_ALLOCATED;
+		}
+		Status = NtReadFile(FileHandle, NULL, NULL, NULL, &FileStatusBlock, *FileDataPool,
+			*FileImageSize, 0, NULL);
+		if (!NT_SUCCESS(Status)) {
+			if (ShouldClose) {
+				NtClose(FileHandle);
+			}
+			ExFreePool(*FileDataPool);
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to read image buffer: 0x%x\n", Status);
+			return Status;
+		}
+	}
+
+
+	// Get file path (mostly relevant for drivers):
+	if (FilePath != NULL) {
+		FileNameInfoBuffer = ExAllocatePoolWithTag(NonPagedPool, sizeof(FILE_NAME_INFORMATION) + (MAX_PATH - 1),
+			'DfNi');
+		if (FileNameInfoBuffer == NULL) {
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to allocate file information: 0x%x\n", STATUS_MEMORY_NOT_ALLOCATED);
+			return STATUS_MEMORY_NOT_ALLOCATED;
+		}
+		RtlZeroMemory(FileNameInfoBuffer, sizeof(FILE_NAME_INFORMATION) + (MAX_PATH - 1));
+		Status = ZwQueryInformationFile(FileHandle, &FileStatusBlock, FileNameInfoBuffer,
+			sizeof(FILE_NAME_INFORMATION) + (MAX_PATH - 1), FileNameInformation);
+		if (!NT_SUCCESS(Status)) {
+			ExFreePool(FileNameInfoBuffer);
+			DbgPrintEx(0, 0, "ProtectionDriver - failed to query file information: 0x%x\n", Status);
+			return Status;
+		}
+		if (ShouldReturnRaw) {
+			unicode_helpers::InitiateUnicode(((PFILE_NAME_INFORMATION)FileNameInfoBuffer)->FileName,
+				'DfUs', FilePath);
+			ExFreePool(FileNameInfoBuffer);
+		}
+		else {
+			unicode_helpers::InitiateUnicode(((PFILE_NAME_INFORMATION)FileNameInfoBuffer)->FileName,
+				'TfNi', &RawFileName);
+			ExFreePool(FileNameInfoBuffer);
+			wcscat_s(FullFileName, L"\\DosDevices\\C:");
+			wcscat_s(FullFileName, RawFileName.Buffer);
+			unicode_helpers::FreeUnicode(&RawFileName);
+			unicode_helpers::InitiateUnicode(FullFileName, 'DfUs', FilePath);
+		}
+	}
+	return STATUS_SUCCESS;
+}
 
 
 BOOL memory_helpers::FreeAllocatedMemoryADD(PEPROCESS EpDst, ULONG OldState, PVOID BufferAddress, SIZE_T BufferSize) {
@@ -471,45 +610,57 @@ PVOID memory_helpers::FindUnusedMemoryADD(BYTE* SearchSection, ULONG SectionSize
 			sequencecount = 0;  // If sequence does not include nop/int3 instruction for long enough - start a new sequence
 		}
 		if (sequencecount == NeededLength) {
-			return (PVOID)((ULONG64)SearchSection + sectioni - SectionSize + 1);  // Get starting address of the matching sequence
+			return (PVOID)((ULONG64)SearchSection + sectioni - NeededLength + 1);  // Get starting address of the matching sequence
 		}
 	}
 	return NULL;
 }
 
 
-PSYSTEM_MODULE memory_helpers::GetModuleBaseAddressADD(const char* ModuleName) {
+PVOID memory_helpers::GetModuleBaseAddressADD(const char* ModuleName) {
 	PSYSTEM_MODULE_INFORMATION SystemModulesInfo = NULL;
 	PSYSTEM_MODULE CurrentSystemModule = NULL;
 	ULONG InfoSize = 0;
-	// PVOID ModuleBaseAddress = NULL;
-
 	NTSTATUS Status = ZwQuerySystemInformation(SystemModuleInformation, 0, InfoSize, &InfoSize);
 	if (InfoSize == 0) {
-		DbgPrintEx(0, 0, "KMDFdriver GetModuleBaseAddressADD - did not return the needed size\n");
+		DbgPrintEx(0, 0, "ProtectionDriver GetModuleBaseAddressADD - did not return the needed size\n");
 		return NULL;
 	}
 	SystemModulesInfo = (PSYSTEM_MODULE_INFORMATION)ExAllocatePoolWithTag(PagedPool, InfoSize, 'MbAp');
 	if (SystemModulesInfo == NULL) {
-		DbgPrintEx(0, 0, "KMDFdriver GetModuleBaseAddressADD - cannot allocate memory for system modules information\n");
+		DbgPrintEx(0, 0, "ProtectionDriver GetModuleBaseAddressADD - cannot allocate memory for system modules information\n");
 		return NULL;
 	}
 	Status = ZwQuerySystemInformation(SystemModuleInformation, SystemModulesInfo, InfoSize, &InfoSize);
 	if (!NT_SUCCESS(Status)) {
-		DbgPrintEx(0, 0, "KMDFdriver GetModuleBaseAddressADD - query failed with status 0x%x\n", Status);
+		DbgPrintEx(0, 0, "ProtectionDriver GetModuleBaseAddressADD - query failed with status 0x%x\n", Status);
 		ExFreePool(SystemModulesInfo);
 		return NULL;
 	}
-
-
-	// Iterate list:
-	for (ULONG modulei = 0; modulei < SystemModulesInfo->ModulesCount; ++modulei){
+	for (ULONG modulei = 0; modulei < SystemModulesInfo->ModulesCount; ++modulei) {
 		CurrentSystemModule = &SystemModulesInfo->Modules[modulei];
+		DbgPrintEx(0, 0, "ProtectionDriver GetModuleBaseAddressADD - %s, %s\n", CurrentSystemModule->ImageName, ModuleName);
 		if (_stricmp(CurrentSystemModule->ImageName, ModuleName) == 0) {
-			// ModuleBaseAddress = CurrentSystemModule->Base;
 			ExFreePool(SystemModulesInfo);
-			return CurrentSystemModule;
+			return CurrentSystemModule->Base;
 		}
+	}
+	return NULL;
+}
+
+
+PIMAGE_SECTION_HEADER memory_helpers::GetSectionHeaderFromNameADD(PVOID ModuleBaseAddress, const char* SectionName) {
+	if (ModuleBaseAddress == NULL || SectionName == NULL) {
+		return NULL;
+	}
+	PIMAGE_DOS_HEADER DosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(ModuleBaseAddress);
+	PIMAGE_NT_HEADERS NtHeader = (PIMAGE_NT_HEADERS)((ULONG64)ModuleBaseAddress + DosHeader->e_lfanew);
+	PIMAGE_SECTION_HEADER CurrentSection = IMAGE_FIRST_SECTION(NtHeader);
+	for (ULONG sectioni = 0; sectioni < NtHeader->FileHeader.NumberOfSections; ++sectioni) {
+		if (strcmp((char*)CurrentSection->Name, SectionName) == 0) {
+			return CurrentSection;
+		}
+		++CurrentSection;
 	}
 	return NULL;
 }
@@ -529,23 +680,6 @@ PVOID memory_helpers::GetTextSectionOfSystemModuleADD(PVOID ModuleBaseAddress, U
 		*TextSectionSize = TextSectionBase->Misc.VirtualSize;
 	}
 	return (PVOID)((ULONG64)ModuleBaseAddress + TextSectionBase->VirtualAddress);
-}
-
-
-PIMAGE_SECTION_HEADER memory_helpers::GetSectionHeaderFromNameADD(PVOID ModuleBaseAddress, const char* SectionName) {
-	if (ModuleBaseAddress == NULL || SectionName == NULL) {
-		return NULL;
-	}
-	PIMAGE_DOS_HEADER DosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(ModuleBaseAddress);
-	PIMAGE_NT_HEADERS NtHeader = (PIMAGE_NT_HEADERS)((ULONG64)ModuleBaseAddress + DosHeader->e_lfanew);
-	PIMAGE_SECTION_HEADER CurrentSection = IMAGE_FIRST_SECTION(NtHeader);
-	for (ULONG sectioni = 0; sectioni < NtHeader->FileHeader.NumberOfSections; ++sectioni) {
-		if (strcmp((char*)CurrentSection->Name, SectionName)) {
-			return CurrentSection;
-		}
-		++CurrentSection;
-	}
-	return NULL;
 }
 
 

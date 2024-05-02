@@ -2,7 +2,13 @@
 #include "definitions.h"
 
 
+namespace unicode_helpers {
+	NTSTATUS InitiateUnicode(LPWSTR String, ULONG PoolTag, PUNICODE_STRING UnicodeString);
+	void FreeUnicode(PUNICODE_STRING String);
+}
+
 namespace general_helpers {
+	PDRIVER_OBJECT GetDriverObjectADD(PUNICODE_STRING DriverName);  // Get DRIVER_OBJECT
 	NTSTATUS OpenProcessHandleADD(HANDLE* Process, ULONG64 PID);  // Get process handle with PID of the process
 	NTSTATUS CopyStringAfterCharADD(PUNICODE_STRING OgString, PUNICODE_STRING NewString, WCHAR Char);  // Copy substring after last apearance of defined character
 	BOOL CompareUnicodeStringsADD(PUNICODE_STRING First, PUNICODE_STRING Second, USHORT CheckLength);  // Compare two unicode strings
@@ -11,9 +17,15 @@ namespace general_helpers {
 	NTSTATUS GetPidNameFromListADD(ULONG64* ProcessId, char ProcessName[15], BOOL NameGiven);  // Get the PID of a process from its name
 	ULONG GetActualLengthADD(PUNICODE_STRING String);  // Get the actual length of the string
 	void ExecuteInstructionsADD(BYTE Instructions[], SIZE_T InstructionsSize);  // Execute the instructions given
-	NTSTATUS CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataToHash, LPCWSTR HashName, 
+}
+
+namespace protection_helpers {
+	NTSTATUS CreateDataHashADD(PVOID DataToHash, ULONG SizeOfDataToHash, LPCWSTR HashName,
 		PVOID* HashedDataOutput, ULONG* HashedDataLength);  // Create hash digestion of the provided data
 	void TriggerBlueScreenOfDeath();  // Trigger BSoD
+	NTSTATUS GetFileInformationByHandleADD(HANDLE FileHandle, PULONG FileImageSize,
+		PUNICODE_STRING FilePath, PVOID* FileDataPool, BOOL ShouldClose,
+		BOOL ShouldReturnRaw);  // Get information about file with handle (mostly drivers)
 }
 
 namespace memory_helpers {
@@ -21,7 +33,7 @@ namespace memory_helpers {
 	PVOID AllocateMemoryADD(PVOID InitialAddress, SIZE_T AllocSize, KAPC_STATE* CurrState, ULONG_PTR ZeroBits);  // allocate memory by parameters (assumes: already attached)
 	ULONG64 GetHighestUserModeAddrADD();  // retrieves the maximum usermode address for the local machine
 	PVOID FindUnusedMemoryADD(BYTE* SearchSection, ULONG SectionSize, SIZE_T NeededLength);  // Find a section of code with enough empty instuctions to fit a NeededLength sized data in it
-	PSYSTEM_MODULE GetModuleBaseAddressADD(const char* ModuleName);  // Get the base address of a system module/ntoskrnl.exe
+	PVOID GetModuleBaseAddressADD(const char* ModuleName);  // Get the base address of a system module/ntoskrnl.exe
 	PVOID GetTextSectionOfSystemModuleADD(PVOID ModuleBaseAddress, ULONG* TextSectionSize);  // Get the address of the code (.text) section of a system module
 	PIMAGE_SECTION_HEADER GetSectionHeaderFromNameADD(PVOID ModuleBaseAddress, const char* SectionName);  // Get the section by the name from a system module
 	BOOL ChangeProtectionSettingsADD(HANDLE ProcessHandle, PVOID Address, ULONG Size, ULONG ProtSettings, ULONG OldProtect);
